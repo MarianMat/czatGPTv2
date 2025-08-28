@@ -1,10 +1,11 @@
 import streamlit as st
-import openai
+from openai import OpenAI
 import json
 from pathlib import Path
 from qdrant_utils import init_qdrant, save_to_qdrant
 
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# 🔑 Inicjalizacja klienta OpenAI
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 qdrant_client = init_qdrant()
 
 model_pricings = {
@@ -57,7 +58,7 @@ DB_CONV_PATH = DB_PATH / "conversations"
 DB_CONV_PATH.mkdir(parents=True, exist_ok=True)
 
 def detect_topic(prompt: str) -> str:
-    resp = openai.ChatCompletion.create(
+    resp = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[
             {"role": "system", "content": "Podaj krótki temat tej rozmowy w 3–5 słowach."},
@@ -142,8 +143,8 @@ def save_conversation():
 
 def get_reply(prompt: str, memory: list, model: str, personality: str) -> dict:
     msgs = [{"role": "system", "content": personality}] + memory + [{"role": "user", "content": prompt}]
-    resp = openai.ChatCompletion.create(model=model, messages=msgs)
-    usage = resp.usage or {}
+    resp = client.chat.completions.create(model=model, messages=msgs)
+    usage = resp.usage
     return {
         "role": "assistant",
         "content": resp.choices[0].message.content,
@@ -290,8 +291,12 @@ if prompt:
         memory = st.session_state.messages
     reply = get_reply(prompt, memory, st.session_state["model"], st.session_state["chatbot_personality"])
     st.session_state.messages.append(reply)
-    st.session_state.session_cost_usd += reply["usage"]["total_tokens"] * model_pricings[st.session_state["model"]]["Input"] / 1_000_000 + reply["usage"]["completion_tokens"] * model_pricings[st.session_state["model"]]["Output"] / 1_000_000
+    st.session_state.session_cost_usd += (
+        reply["usage"]["total_tokens"] * model_pricings[st.session_state["model"]]["Input"] / 1_000_000
+        + reply["usage"]["completion_tokens"] * model_pricings[st.session_state["model"]]["Output"] / 1_000_000
+    )
     with st.chat_message("assistant"):
         st.markdown(reply["content"])
     save_conversation()
     save_to_qdrant(prompt, reply["content"], f"Conv{st.session_state['id']}", qdrant_client)
+
