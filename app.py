@@ -127,8 +127,8 @@ def switch_conversation(convo_id: int):
         convo = json.load(fp)
         st.session_state.clear()
         st.session_state.update(convo)
-    st.experimental_rerun()
-
+    st.rerun()
+    
 def save_conversation():
     convo = {
         "id": st.session_state["id"],
