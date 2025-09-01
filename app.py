@@ -188,8 +188,12 @@ if "id" not in st.session_state:
         # Jeśli nie ma zapisanych rozmów, utwórz nową domyślną
         create_new_conversation("{0}", translations["Polski"]["default_personality"], "Polski")
 
-# ---
-lang = st.sidebar.selectbox(translations["Polski"]["language_switch"], ["Polski", "Українська"], index=["Polski", "Українська"].index(st.session_state.get("language", "Polski")))
+# Upewnij się, że stan języka jest poprawnie ustawiony
+lang = st.sidebar.selectbox(
+    translations["Polski"]["language_switch"],
+    ["Polski", "Українська"],
+    index=["Polski", "Українська"].index(st.session_state.get("language", "Polski"))
+)
 t = translations[lang]
 st.session_state["language"] = lang
 
@@ -304,8 +308,9 @@ if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     if len(st.session_state.messages) == 1:
         st.session_state["first_prompt"] = prompt
-        topic = detect_topic(prompt)
-        st.session_state.name = topic[:48]
+        # Wykomentowałem automatyczne nadawanie nazwy
+        # topic = detect_topic(prompt)
+        # st.session_state.name = topic[:48]
     mem = st.session_state["memory_mode"]
     if mem == "Ostatnie 10 wiadomości":
         memory = st.session_state.messages[-10:]
