@@ -86,7 +86,7 @@ def list_conversations():
             convos.append((c["id"], c["name"]))
     return sorted(convos, key=lambda x: x[0])
 
-def create_new_conversation(name_template: str, default_personality: str):
+def create_new_conversation(name_template: str, default_personality: str, lang: str):
     existing = list_conversations()
     new_id = max([cid for cid, _ in existing], default=0) + 1
     name = name_template.format(new_id)
@@ -96,7 +96,10 @@ def create_new_conversation(name_template: str, default_personality: str):
         "chatbot_personality": default_personality,
         "messages": [],
         "model": "gpt-4o",
-        "session_cost_usd": 0.0
+        "session_cost_usd": 0.0,
+        "language": lang,
+        "memory_mode": "Pełna historia",
+        "first_prompt": ""
     }
     with open(DB_CONV_PATH / f"{new_id}.json", "w") as fp:
         json.dump(convo, fp)
@@ -110,12 +113,14 @@ def delete_conversation(convo_id: int):
     if convo_file.exists():
         convo_file.unlink()
         st.session_state.clear()
-
+        
+        # Przełącz na inną istniejącą rozmowę lub utwórz nową
         new_convo = list_conversations()
         if new_convo:
             switch_conversation(new_convo[0][0])
         else:
-            create_new_conversation("{0}", "Domyślna osobowość")
+            # Użyj domyślnego języka polskiego, jeśli nie ma innych rozmów
+            create_new_conversation("{0}", translations["Polski"]["default_personality"], "Polski")
     else:
         st.warning("Konwersacja już nie istnieje.")
 
@@ -136,7 +141,10 @@ def save_conversation():
         "chatbot_personality": st.session_state["chatbot_personality"],
         "messages": st.session_state.get("messages", []),
         "model": st.session_state["model"],
-        "session_cost_usd": st.session_state.get("session_cost_usd", 0.0)
+        "session_cost_usd": st.session_state.get("session_cost_usd", 0.0),
+        "language": st.session_state.get("language", "Polski"),
+        "memory_mode": st.session_state.get("memory_mode", "Pełna historia"),
+        "first_prompt": st.session_state.get("first_prompt", "")
     }
     with open(DB_CONV_PATH / f"{convo['id']}.json", "w") as fp:
         json.dump(convo, fp)
@@ -157,19 +165,33 @@ def get_reply(prompt: str, memory: list, model: str, personality: str) -> dict:
 
 st.set_page_config(page_title="MójGPT", layout="centered")
 
-lang = st.sidebar.selectbox(translations["Polski"]["language_switch"], ["Polski", "Українська"])
-t = translations[lang]
-
-# Załaduj lub stwórz konwersację
+# --- Inicjalizacja stanu aplikacji
 if "id" not in st.session_state:
-    convo_id = get_current_convo_id()
-    convo_file = DB_CONV_PATH / f"{convo_id}.json"
-    if not convo_file.exists():
-        create_new_conversation(t["default_conversation_name"], t["default_personality"])
+    conversations_available = list_conversations()
+    if conversations_available:
+        # Jeśli istnieją zapisane rozmowy, załaduj ostatnio używaną
+        convo_id = get_current_convo_id()
+        convo_file = DB_CONV_PATH / f"{convo_id}.json"
+        
+        # Sprawdź, czy ostatnio używana rozmowa wciąż istnieje
+        if convo_file.exists():
+            with open(convo_file) as fp:
+                convo = json.load(fp)
+                st.session_state.update(convo)
+        else:
+            # Jeśli plik nie istnieje, załaduj pierwszą z listy
+            first_convo_id = conversations_available[0][0]
+            with open(DB_CONV_PATH / f"{first_convo_id}.json") as fp:
+                convo = json.load(fp)
+                st.session_state.update(convo)
     else:
-        with open(convo_file) as fp:
-            convo = json.load(fp)
-        st.session_state.update(convo)
+        # Jeśli nie ma zapisanych rozmów, utwórz nową domyślną
+        create_new_conversation("{0}", translations["Polski"]["default_personality"], "Polski")
+
+# ---
+lang = st.sidebar.selectbox(translations["Polski"]["language_switch"], ["Polski", "Українська"], index=["Polski", "Українська"].index(st.session_state.get("language", "Polski")))
+t = translations[lang]
+st.session_state["language"] = lang
 
 # Functions for searching in conversations
 def search_conversations(query_word):
@@ -185,7 +207,7 @@ def search_conversations(query_word):
 
 # sidebar: Nowa rozmowa
 if st.sidebar.button(t["new_conversation"]):
-    create_new_conversation(t["default_conversation_name"], t["default_personality"])
+    create_new_conversation(t["default_conversation_name"], t["default_personality"], lang)
 
 # sidebar: Lista rozmów z opcją usuwania
 st.sidebar.markdown(f"**{t['conversation_list']}**")
@@ -233,7 +255,8 @@ memory_mode_options = ["Ostatnie 10 wiadomości", "Rozszerzona (30)", "Pełna hi
 st.session_state["memory_mode"] = st.sidebar.selectbox(
     t["memory_mode"],
     memory_mode_options,
-    index=memory_mode_options.index(st.session_state.get("memory_mode", "Ostatnie 10 wiadomości"))
+    index=memory_mode_options.index(st.session_state.get("memory_mode", "Pełna historia")),
+    on_change=save_conversation
 )
 
 # sidebar: Styl GPT
@@ -280,6 +303,7 @@ prompt = st.chat_input(t["input_placeholder"])
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
     if len(st.session_state.messages) == 1:
+        st.session_state["first_prompt"] = prompt
         topic = detect_topic(prompt)
         st.session_state.name = topic[:48]
     mem = st.session_state["memory_mode"]
@@ -299,4 +323,3 @@ if prompt:
         st.markdown(reply["content"])
     save_conversation()
     save_to_qdrant(prompt, reply["content"], f"Conv{st.session_state['id']}", qdrant_client)
-
