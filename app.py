@@ -86,7 +86,7 @@ def list_conversations():
             convos.append((c["id"], c["name"]))
     return sorted(convos, key=lambda x: x[0])
 
-def create_new_conversation(name_template: str, default_personality: str, lang: str):
+def create_new_conversation(name_template: str, default_personality: str):
     existing = list_conversations()
     new_id = max([cid for cid, _ in existing], default=0) + 1
     name = name_template.format(new_id)
@@ -97,8 +97,8 @@ def create_new_conversation(name_template: str, default_personality: str, lang: 
         "messages": [],
         "model": "gpt-4o",
         "session_cost_usd": 0.0,
-        "language": lang,
-        "memory_mode": "Pełna historia",
+        "language": st.session_state.get("language", "Polski"),
+        "memory_mode": st.session_state.get("memory_mode", "Pełna historia"),
         "first_prompt": ""
     }
     with open(DB_CONV_PATH / f"{new_id}.json", "w") as fp:
@@ -113,14 +113,12 @@ def delete_conversation(convo_id: int):
     if convo_file.exists():
         convo_file.unlink()
         st.session_state.clear()
-        
-        # Przełącz na inną istniejącą rozmowę lub utwórz nową
+
         new_convo = list_conversations()
         if new_convo:
             switch_conversation(new_convo[0][0])
         else:
-            # Użyj domyślnego języka polskiego, jeśli nie ma innych rozmów
-            create_new_conversation("{0}", translations["Polski"]["default_personality"], "Polski")
+            create_new_conversation("{0}", "Domyślna osobowość")
     else:
         st.warning("Konwersacja już nie istnieje.")
 
@@ -133,7 +131,7 @@ def switch_conversation(convo_id: int):
         st.session_state.clear()
         st.session_state.update(convo)
     st.rerun()
-    
+
 def save_conversation():
     convo = {
         "id": st.session_state["id"],
@@ -165,33 +163,22 @@ def get_reply(prompt: str, memory: list, model: str, personality: str) -> dict:
 
 st.set_page_config(page_title="MójGPT", layout="centered")
 
-# --- Inicjalizacja stanu aplikacji
-if "id" not in st.session_state:
-    conversations_available = list_conversations()
-    if conversations_available:
-        # Jeśli istnieją zapisane rozmowy, załaduj ostatnio używaną
-        convo_id = get_current_convo_id()
-        convo_file = DB_CONV_PATH / f"{convo_id}.json"
-        
-        # Sprawdź, czy ostatnio używana rozmowa wciąż istnieje
-        if convo_file.exists():
-            with open(convo_file) as fp:
-                convo = json.load(fp)
-                st.session_state.update(convo)
-        else:
-            # Jeśli plik nie istnieje, załaduj pierwszą z listy
-            first_convo_id = conversations_available[0][0]
-            with open(DB_CONV_PATH / f"{first_convo_id}.json") as fp:
-                convo = json.load(fp)
-                st.session_state.update(convo)
-    else:
-        # Jeśli nie ma zapisanych rozmów, utwórz nową domyślną
-        create_new_conversation("{0}", translations["Polski"]["default_personality"], "Polski")
-
-# ---
-lang = st.sidebar.selectbox(translations["Polski"]["language_switch"], ["Polski", "Українська"], index=["Polski", "Українська"].index(st.session_state.get("language", "Polski")))
+lang = st.sidebar.selectbox(translations["Polski"]["language_switch"], ["Polski", "Українська"])
 t = translations[lang]
+
+# Zapisywanie wybranego języka do session_state
 st.session_state["language"] = lang
+
+# Załaduj lub stwórz konwersację
+if "id" not in st.session_state:
+    convo_id = get_current_convo_id()
+    convo_file = DB_CONV_PATH / f"{convo_id}.json"
+    if not convo_file.exists():
+        create_new_conversation(t["default_conversation_name"], t["default_personality"])
+    else:
+        with open(convo_file) as fp:
+            convo = json.load(fp)
+        st.session_state.update(convo)
 
 # Functions for searching in conversations
 def search_conversations(query_word):
@@ -207,7 +194,7 @@ def search_conversations(query_word):
 
 # sidebar: Nowa rozmowa
 if st.sidebar.button(t["new_conversation"]):
-    create_new_conversation(t["default_conversation_name"], t["default_personality"], lang)
+    create_new_conversation(t["default_conversation_name"], t["default_personality"])
 
 # sidebar: Lista rozmów z opcją usuwania
 st.sidebar.markdown(f"**{t['conversation_list']}**")
